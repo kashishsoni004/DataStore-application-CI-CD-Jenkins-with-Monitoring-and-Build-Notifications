@@ -1,0 +1,16 @@
+git remote add origin https://github.com/cameronmcnz/example-website.git
+git push -u -f origin master
+
+./mvnw validate -> Checks project structure is correct and all dependencies downloaded.
+./mvnw compile -> Compiles source code and converts .java files to .class files.
+./mvnw test -> Executes test cases.
+./mvnw package -> Creates jar file.
+
+./mvnw dependency:tree -> It displays dependencies in tree format.
+./mvnw clean -> Removes target directory.
+
+docker build -t datastore:1.0 .
+docker tag datastore:1.0 8072388539/datastore:v1.0
+docker push 8072388539/datastore:v1.0
+
+sed -i "" "s/nginx:1.1/busybox:1.2/" test

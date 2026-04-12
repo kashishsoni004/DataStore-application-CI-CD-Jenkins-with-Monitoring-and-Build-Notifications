@@ -1,0 +1,115 @@
+pipeline {
+  agent any
+
+  environment {
+    DOCKERHUB_CREDENTIALS=credentials("dockerhub")
+    SONARQUBE_CREDENTIALS=credentials("sonarqube")
+  }
+
+  parameters {
+    string(name: "App_Version", description: "provide application version")
+  }
+
+  stages {
+    stage("Clone Repository") {
+      steps {
+        checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/shivagande26/DataStore.git']])
+      }
+    }
+    stage("Maven Build") {
+      steps {
+        sh """
+          echo "-------- Building datastore project --------"
+          mvn clean package
+          echo "-------- Datastore project build successfully --------"
+        """
+      }
+    }
+    stage("Maven Test") {
+      steps {
+        sh """
+          echo "-------- Executing Testcases --------"
+          mvn test
+          echo "-------- Testcases Execution Complete --------"
+        """
+      }
+    }
+    stage("Static Code Analisys") {
+      steps{
+        script {
+         def scannerHome = tool 'sonarqube'
+         withSonarQubeEnv('sonarqube') {
+          // sh "${scannerHome}/bin/sonar-scanner"
+           sh "${scannerHome}/bin/sonar-scanner "+"-Dsonar.projectKey=datastore "+"-Dsonar.projectName=DataStore "+"-Dsonar.projectVersion='${App_Version}' "+"-Dsonar.sources=src/main/java "+"-Dsonar.java.binaries=target/classes "+"-Dsonar.language=java"
+         }
+        }
+      }
+    }
+    stage("Building Docker Image") {
+      steps {
+        sh """
+          echo "-------- Building Docker Image --------"
+          docker build -t datastore:"${App_Version}" .
+          echo "-------- Image Successfully Built --------"
+        """
+      }
+    }
+    stage("Scanning Docker Image") {
+      steps {
+        sh """
+          echo "-------- Scanning Docker Image --------"
+          trivy image datastore:"${App_Version}"
+          echo "-------- Scanning Docker Image Complete --------"
+        """
+      }
+    }
+    stage("Docker Login") {
+      steps {
+        sh """
+          echo "-------- Logging To DockerHub --------"
+          docker login -u $DOCKERHUB_CREDENTIALS_USR --password $DOCKERHUB_CREDENTIALS_PSW
+          echo "-------- DockerHub Login Successful --------"
+        """
+      }
+    }
+    stage("Pushing Docker Image") {
+      steps {
+        sh """
+          echo "-------- Tagging Docker Image --------"
+          docker tag datastore:"${App_Version}" 8072388539/datastore:"${App_Version}"
+          echo "-------- Tagging of Docker Image Complete --------"
+
+          echo "-------- Pushing Docker Image To DockerHub --------"
+          docker push 8072388539/datastore:"${App_Version}"
+          echo "-------- Pushing Docker Image Complete --------"
+        """
+      }
+    }
+    stage("Clean Up Activities") {
+      steps {
+        sh """
+          echo "-------- Removing Unused Images --------"
+          docker image prune -a -f
+          echo "-------- Unused Images Removed Successfully --------"
+        """
+      }
+    }
+    stage("Continue Deployment Acceptance") {
+      steps {
+        input "Continue Deployment?"
+      }
+    }
+    stage("Triggering Deployment Job") {
+      steps {
+        build job: "app-deploy", parameters: [string(name: "App_Name", value: "datastore-deploy"), string(name: "App_Version", value: "${params.App_Version}")]
+      }
+    }
+  }
+  post {
+    always {
+      sh """
+        echo "Hello Action"
+      """
+    }
+  }
+}
