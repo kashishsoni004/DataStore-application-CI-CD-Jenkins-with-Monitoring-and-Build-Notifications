@@ -52,8 +52,9 @@ Source reference: :contentReference[oaicite:0]{index=0}
 
 ---
 
-### Step 2: Install Java
+### Step 2: Install Java & Git 
 
+    sudo yum install git -y
     sudo yum install java-17-amazon-corretto.x86_64 -y
 
 ---
