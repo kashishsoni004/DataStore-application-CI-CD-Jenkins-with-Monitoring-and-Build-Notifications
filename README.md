@@ -324,60 +324,64 @@ Fix:
 
 ### Pipeline Code
 
-    pipeline {
+           pipeline {
     agent any
 
     environment {
-        GITHUB_TOKEN = credentials("github-token")
+        GITHUB_TOKEN = credentials('github-token')
     }
 
     parameters {
         string(
-            name: "App_Name",
-            description: "application name that need to be deployed"
+            name: 'App_Name',
+            description: 'application name that need to be deployed'
         )
         string(
-            name: "App_Version",
-            description: "version of the application that need to be deployed"
+            name: 'App_Version',
+            description: 'version of the application that need to be deployed'
         )
     }
 
     stages {
 
-        stage("Checkout") {
+        stage('Checkout') {
             steps {
                 checkout scmGit(
                     branches: [[name: '*/main']],
                     extensions: [],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/bhawnavishwakarma007/Kubernetes-ArgoCD.git'
+                        url: 'https://github.com/kashishsoni004/Kubernetes-ArgoCD.git'
                     ]]
                 )
             }
         }
 
-        stage("Update Files") {
+        stage('Update Files') {
             steps {
                 sh """
                     echo "-------- Updating File Content --------"
-                    cd "${params.App_Name}"
 
-                    sed -i 's/image:.*/image: bhawnavishwakarma\\/datastore:${params.App_Version}/g' "${params.App_Name}".yaml
+                    cd ${params.App_Name}
+
+                    sed -i 's|image:.*|image: kashishsoni004/datastore:${params.App_Version}|g' ${params.App_Name}.yaml
 
                     echo "-------- File Content Updated Successfully --------"
                 """
             }
         }
 
-        stage("GitHub Push") {
+        stage('GitHub Push') {
             steps {
                 sh """
                     echo "-------- Pushing Changes To GitHub --------"
 
-                    git add .
-                    git commit -am "docker image updated" || echo "No changes to commit"
+                    git config user.name "jenkins"
+                    git config user.email "jenkins@local"
 
-                    git push https://$GITHUB_TOKEN@github.com/bhawnavishwakarma007/Kubernetes-ArgoCD.git HEAD:main
+                    git add .
+                    git commit -m "docker image updated" || echo "No changes to commit"
+
+                    git push https://${GITHUB_TOKEN}@github.com/kashishsoni004/Kubernetes-ArgoCD.git HEAD:main
 
                     echo "-------- Pushed Changes Successfully --------"
                 """
@@ -385,6 +389,7 @@ Fix:
         }
     }
 }
+   
 
 ---
 
