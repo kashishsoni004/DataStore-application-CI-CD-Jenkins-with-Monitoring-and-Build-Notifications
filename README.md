@@ -33,13 +33,13 @@ Source reference: :contentReference[oaicite:0]{index=0}
 
 - AWS EC2 instance (Amazon Linux / RHEL-based)
 - Jenkins
-- Java 17
+- Java 21
 - Maven
 - Docker
 - AWS CLI
 - GitHub repository
 - DockerHub account
-- Slack Webhook
+- Slack App (Bot Token based)
 - Kubernetes cluster with ArgoCD
 
 ---
@@ -81,9 +81,10 @@ Source reference: :contentReference[oaicite:0]{index=0}
       http://<your-server-ip>:8080
 
 - Install plugins:
-  - Stage View
-  - Blue Ocean
-  - Parameterized Trigger
+  - Stage View  
+  - Blue Ocean  
+  - Parameterized Trigger  
+  - Slack Notification 
 
 ---
 
@@ -116,20 +117,28 @@ Source reference: :contentReference[oaicite:0]{index=0}
 ### Build Stage
 
     stage("Maven Build") {
-        steps {
-            sh "mvn clean package"
+            steps {
+                sh """
+                    echo "-------- Building Application --------"
+                    mvn clean package
+                    echo "------- Application Built Successfully --------"
+                """
+            }
         }
-    }
 
 ---
 
 ### Test Stage
 
     stage("Maven Test") {
-        steps {
-            sh "mvn test"
+            steps {
+                sh """
+                    echo "-------- Executing Testcases --------"
+                    mvn test
+                    echo "-------- Testcases Execution Complete --------"
+                """
+            }
         }
-    }
 
 ---
 
@@ -165,11 +174,15 @@ Source reference: :contentReference[oaicite:0]{index=0}
 
 ### Artifact Upload Stage
 
-    stage("Artifact Store") {
-        steps {
-            sh "aws s3 cp ./target/*.jar s3://datastore-artefact-store-jenkins-apps-apppp/"
+           stage("Artifact Store") {
+            steps {
+                sh """
+                    echo "-------- Pushing Artifacts To S3 --------"
+                    aws s3 cp ./target/*.jar s3://datastore-artefact-store-jenkins-apps-apppp/
+                    echo "-------- Pushing Artifacts To S3 Completed --------"
+                """
+            }
         }
-    }
 
 ---
 
@@ -192,10 +205,14 @@ Source reference: :contentReference[oaicite:0]{index=0}
 ### Docker Build Stage
 
     stage("Docker Image Build") {
-        steps {
-            sh "docker build -t datastore:${App_Version} ."
+            steps {
+                sh """
+                    echo "-------- Building Docker Image --------"
+                    docker build -t datastore:"${App_Version}" .
+                    echo "-------- Image Successfully Built --------"
+                """
+            }
         }
-    }
 
 ---
 
@@ -229,50 +246,64 @@ Fix:
 
 ### Add Credentials in Jenkins
 
+- Type: Username with password
 - ID: dockerhub
 
 ---
 
 ### Tag Image
 
-    stage("Docker Image Tag") {
-        steps {
-            sh "docker tag datastore:${App_Version} bhawnavishwakarma/datastore:${App_Version}"
+     stage("Docker Image Tag") {
+            steps {
+                sh """
+                    echo "-------- Tagging Docker Image --------"
+                    docker tag datastore:"${App_Version}" bhawnavishwakarma/datastore:"${App_Version}"
+                    echo "-------- Tagging Docker Image Completed --------"
+                """
+            }
         }
-    }
 
 ---
 
 ### Push Image
 
-    stage("Docker Push") {
-        steps {
-            sh """
-            docker login -u $DOCKERHUB_CREDENTIALS_USR --password $DOCKERHUB_CREDENTIALS_PSW
-            docker push bhawnavishwakarma/datastore:${App_Version}
-            """
+    stage("Loggingin & Pushing Docker Image") {
+            steps {
+                sh """
+                    echo "-------- Logging To DockerHub --------"
+                    docker login -u $DOCKERHUB_CREDENTIALS_USR --password $DOCKERHUB_CREDENTIALS_PSW
+                    echo "-------- DockerHub Login Successful --------"
+
+                    echo "-------- Pushing Docker Image To DockerHub --------"
+                    docker push bhawnavishwakarma/datastore:"${App_Version}"
+                    echo "-------- Docker Image Pushed Successfully --------"
+                """
+            }
         }
-    }
 
 ---
 
 ### Cleanup
 
     stage("Cleanup") {
-        steps {
-            sh "docker image prune -a -f"
+            steps {
+                sh """
+                    echo "-------- Cleaning Up Jenkins Machine --------"
+                    docker image prune -a -f
+                    echo "-------- Clean Up Successful --------"
+                """
+            }
         }
-    }
 
 ---
 
 ## Manual Approval
 
     stage("Deployment Acceptance") {
-        steps {
-            input 'Trigger Down Stream Job??'
+            steps {
+                input 'Trigger Down Stream Job??'
+            }
         }
-    }
 
 ---
 
@@ -294,112 +325,252 @@ Fix:
 ### Pipeline Code
 
     pipeline {
-        agent any
+    agent any
 
-        environment {
-            GITHUB_TOKEN = credentials("github-token")
+    environment {
+        GITHUB_TOKEN = credentials("github-token")
+    }
+
+    parameters {
+        string(
+            name: "App_Name",
+            description: "application name that need to be deployed"
+        )
+        string(
+            name: "App_Version",
+            description: "version of the application that need to be deployed"
+        )
+    }
+
+    stages {
+
+        stage("Checkout") {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/bhawnavishwakarma007/Kubernetes-ArgoCD.git'
+                    ]]
+                )
+            }
         }
 
-        parameters {
-            string(name: "App_Name")
-            string(name: "App_Version")
+        stage("Update Files") {
+            steps {
+                sh """
+                    echo "-------- Updating File Content --------"
+                    cd "${params.App_Name}"
+
+                    sed -i 's/image:.*/image: bhawnavishwakarma\\/datastore:${params.App_Version}/g' "${params.App_Name}".yaml
+
+                    echo "-------- File Content Updated Successfully --------"
+                """
+            }
         }
 
-        stages {
+        stage("GitHub Push") {
+            steps {
+                sh """
+                    echo "-------- Pushing Changes To GitHub --------"
 
-            stage("Checkout") {
-                steps {
-                    checkout scmGit(
-                        branches: [[name: '*/main']],
-                        userRemoteConfigs: [[url: 'https://github.com/bhawnavishwakarma007/Kubernetes-ArgoCD.git']]
-                    )
-                }
-            }
-
-            stage("Update Files") {
-                steps {
-                    sh """
-                    cd ${params.App_Name}
-                    sed -i 's/image:.*/image: bhawnavishwakarma\\/datastore:${params.App_Version}/g' ${params.App_Name}.yaml
-                    """
-                }
-            }
-
-            stage("GitHub Push") {
-                steps {
-                    sh """
                     git add .
-                    git commit -am "image updated" || echo "No changes"
+                    git commit -am "docker image updated" || echo "No changes to commit"
+
                     git push https://$GITHUB_TOKEN@github.com/bhawnavishwakarma007/Kubernetes-ArgoCD.git HEAD:main
-                    """
-                }
+
+                    echo "-------- Pushed Changes Successfully --------"
+                """
             }
         }
     }
+}
 
 ---
 
 ### Trigger Downstream Pipeline
 
     stage("Triggering Deployment") {
-        steps {
-            build job: "KubernetesDeployment",
-            parameters: [
-                string(name: "App_Name", value: "datastore-deploy"),
-                string(name: "App_Version", value: "${params.App_Version}")
-            ]
+            steps {
+                build job: "KubernetesDeployment",
+                    parameters: [
+                        string(name: "App_Name", value: "datastore-deploy"),
+                        string(name: "App_Version", value: "${params.App_Version}")
+                    ]
+            }
         }
-    }
 
 ---
 
-## Slack Notifications
+## 🔔 Slack Notifications Integration
+
+ Step 1: Create Slack App
+       Go to: https://api.slack.com/apps
+Click Create New App
+Choose:
+      From Scratch
+App Name:
+        jenkins
+Select your workspace:
+      awspracticeco
+Step 2: Add Bot Permissions
+
+Go to:
+
+OAuth & Permissions → Bot Token Scopes
+
+Add:
+
+    chat:write
+    chat:write.public
+    channels:read
+
+Step 3: Install App
+
+Click:
+
+Install to Workspace
+
+👉 Copy Bot Token:
+
+    xoxb-xxxxxxxx
+    
+Step 4: Add Credential in Jenkins
+
+Go to:
+
+Manage Jenkins → Credentials → Global
+
+Add:
+
+Kind: Secret Text
+    Secret: Slack Bot Token
+     ID: slackSend
+     
+Step 5: Configure Slack in Jenkins
+
+Go to:
+
+Manage Jenkins → System → Slack
+
+     Field	Value
+    Workspace	awspracticeco
+    Credential	slackSend
+    Open channel → copy Link:
+
+Example:
+
+     https://app.slack.com/client/TXXXX/C0AMPGQ5N9Y
+
+👉 Use:
+
+    C0AMPGQ5N9Y
+
+   Enable Custom Slack Bot 
+
+👉 Save
+
+Step 6: Create Slack Channel
+Open your Slack workspace:
+    👉 awspracticeco.slack.com
+In left sidebar → click ➕ (Add channels)
+Click:
+Create a new channel
+Enter details:
+Channel name: practise
+Type: Public
+
+👉 Final channel:
+
+     #practise
+Click Create
+
+🔄 Step 7: Invite Bot to Channel
+
+After creating channel:
+
+     /invite @jenkins
+     
+
+### Step 7: Pipeline Integration
 
     post {
         success {
-            slackSend channel: '#alerting', color: 'good',
-            message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            slackSend(
+                channel: '#practice',
+                color: 'good',
+                message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} completed successfully"
+            )
         }
+
         failure {
-            slackSend channel: '#alerting', color: 'danger',
-            message: "FAILURE: ${env.BUILD_URL}"
+            slackSend(
+                channel: '#practice',
+                color: 'danger',
+                message: "FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER} failed\n${env.BUILD_URL}"
+            )
+        }
+
+        unstable {
+            slackSend(
+                channel: '#practice',
+                color: 'warning',
+                message: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+        }
+
+        aborted {
+            slackSend(
+                channel: '#practice',
+                color: 'warning',
+                message: "ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+        }
+
+        always {
+            slackSend(
+                channel: '#practice',
+                color: 'good',
+                message: "Build finished: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
         }
     }
 
 ---
 
-## Final Workflow
+## 🔄 Final Workflow
 
     Code Push → GitHub
-        ↓
+            ↓
     Jenkins CI Pipeline Triggered
-        ↓
+            ↓
     Build & Test
-        ↓
+            ↓
     Artifact Uploaded to S3
-        ↓
+            ↓
     Docker Image Built & Pushed
-        ↓
+            ↓
     Manual Approval
-        ↓
+            ↓
     Downstream Pipeline Triggered
-        ↓
+            ↓
     YAML Updated (GitOps Repo)
-        ↓
+            ↓
     Kubernetes Deployment via ArgoCD
 
 ---
 
-## Final Status
+## ✅ Final Status
 
-- CI/CD pipeline successfully implemented
-- DockerHub integration completed
-- IAM role configured securely
-- Docker build issues resolved
-- Trivy installed for vulnerability scanning
-- Downstream pipeline working
-- GitHub token authentication configured
-- GitOps deployment enabled
-- Slack notifications integrated
+- CI/CD pipeline successfully implemented  
+- DockerHub integration completed  
+- IAM role configured securely  
+- Docker build issues resolved  
+- Trivy installed for vulnerability scanning  
+- Downstream pipeline working  
+- GitHub token authentication configured  
+- GitOps deployment enabled  
+- Slack notifications integrated  
 
+---
 ---
