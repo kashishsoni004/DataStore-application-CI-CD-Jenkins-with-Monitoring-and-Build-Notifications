@@ -20,7 +20,7 @@ pipeline {
                     branches: [[name: '*/main']],
                     extensions: [],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/bhawnavishwakarma007/CI-CD-Pipeline-for-Spring-Boot-Applications-Using-Jenkins-with-Monitoring-and-Build-Notifications.git'
+                        url: 'https://github.com/kashishsoni004/DataStore-application-CI-CD-Jenkins-with-Monitoring-and-Build-Notifications.git'
                     ]]
                 )
             }
@@ -60,36 +60,36 @@ pipeline {
             steps {
                 sh """
                     echo "-------- Building Docker Image --------"
-                    docker build -t datastore:"${App_Version}" .
+                    docker build -t datastore:${App_Version} .
                     echo "-------- Image Successfully Built --------"
                 """
             }
         }
-        
+
         stage("Docker Scan (Trivy)") {
-         steps {
-           sh '''
-            echo "-------- Scanning Image --------"
+            steps {
+                sh '''
+                    echo "-------- Scanning Image --------"
 
-            export TRIVY_TEMP_DIR=/var/lib/jenkins/trivy-temp
-            mkdir -p $TRIVY_TEMP_DIR
+                    export TRIVY_TEMP_DIR=/var/lib/jenkins/trivy-temp
+                    mkdir -p $TRIVY_TEMP_DIR
 
-            trivy image \
-              --scanners vuln \
-              --timeout 5m \
-              --skip-java-db-update \
-              datastore:${App_Version} || true
+                    trivy image \
+                      --scanners vuln \
+                      --timeout 5m \
+                      --skip-java-db-update \
+                      datastore:${App_Version} || true
 
-            echo "-------- Scan Completed --------"
-        '''
-           }
-       }
+                    echo "-------- Scan Completed --------"
+                '''
+            }
+        }
 
         stage("Docker Image Tag") {
             steps {
                 sh """
                     echo "-------- Tagging Docker Image --------"
-                    docker tag datastore:"${App_Version}" bhawnavishwakarma/datastore:"${App_Version}"
+                    docker tag datastore:${App_Version} kashishsoni004/datastore:${App_Version}
                     echo "-------- Tagging Docker Image Completed --------"
                 """
             }
@@ -100,11 +100,9 @@ pipeline {
                 sh """
                     echo "-------- Logging To DockerHub --------"
                     docker login -u $DOCKERHUB_CREDENTIALS_USR --password $DOCKERHUB_CREDENTIALS_PSW
-                    echo "-------- DockerHub Login Successful --------"
 
                     echo "-------- Pushing Docker Image To DockerHub --------"
-                    docker push bhawnavishwakarma/datastore:"${App_Version}"
-                    echo "-------- Docker Image Pushed Successfully --------"
+                    docker push kashishsoni004/datastore:${App_Version}
                 """
             }
         }
@@ -114,7 +112,6 @@ pipeline {
                 sh """
                     echo "-------- Cleaning Up Jenkins Machine --------"
                     docker image prune -a -f
-                    echo "-------- Clean Up Successful --------"
                 """
             }
         }
@@ -136,12 +133,13 @@ pipeline {
         }
     }
 
+    // ✅ FIXED: post block OUTSIDE stages
     post {
         success {
             slackSend(
                 channel: '#practice',
                 color: 'good',
-                message: "✔️ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} completed successfully."
+                message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
         }
 
@@ -149,7 +147,7 @@ pipeline {
             slackSend(
                 channel: '#practice',
                 color: 'danger',
-                message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER} failed.\nCheck console output: ${env.BUILD_URL}"
+                message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}\n${env.BUILD_URL}"
             )
         }
 
@@ -157,23 +155,22 @@ pipeline {
             slackSend(
                 channel: '#practice',
                 color: 'warning',
-                message: "⚠️ UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} returned unstable status."
+                message: "⚠️ UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
         }
 
         aborted {
             slackSend(
                 channel: '#practice',
-                color: '#808080',
-                message: "⛔ ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER} was aborted."
+                color: 'warning',
+                message: "🚫 ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
         }
 
         always {
             slackSend(
                 channel: '#practice',
-                color: '#439FE0',
-                message: "ℹ️ Build finished: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                message: "📌 Build finished: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
         }
     }
