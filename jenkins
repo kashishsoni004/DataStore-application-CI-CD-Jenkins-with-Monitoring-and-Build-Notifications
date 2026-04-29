@@ -4,7 +4,7 @@ pipeline {
     parameters {
         string(
             name: "App_Version",
-            description: "provide application version"
+            description: "Provide application version (e.g., v1.0)"
         )
     }
 
@@ -16,53 +16,55 @@ pipeline {
 
         stage("Checkout") {
             steps {
-                checkout scmGit(
-                    branches: [[name: '*/main']],
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/kashishsoni004/DataStore-application-CI-CD-Jenkins-with-Monitoring-and-Build-Notifications.git'
-                    ]]
-                )
+                git branch: 'main',
+                    url: 'https://github.com/kashishsoni004/DataStore-application-CI-CD-Jenkins-with-Monitoring-and-Build-Notifications.git'
             }
         }
 
         stage("Maven Build") {
             steps {
-                sh """
+                sh '''
                     echo "-------- Building Application --------"
                     mvn clean package
-                    echo "------- Application Built Successfully --------"
-                """
+                '''
             }
         }
 
         stage("Maven Test") {
             steps {
-                sh """
-                    echo "-------- Executing Testcases --------"
+                sh '''
+                    echo "-------- Running Tests --------"
                     mvn test
-                    echo "-------- Testcases Execution Complete --------"
-                """
+                '''
             }
         }
 
-        stage("Artifact Store") {
+        stage("SonarQube Analysis") {
             steps {
-                sh """
-                    echo "-------- Pushing Artifacts To S3 --------"
+                withSonarQubeEnv('sonar') {
+                    sh '''
+                        mvn clean verify sonar:sonar \
+                        -Dsonar.projectKey=datastore
+                    '''
+                }
+            }
+        }
+
+        stage("Artifact Store (S3)") {
+            steps {
+                sh '''
+                    echo "-------- Uploading Artifact to S3 --------"
                     aws s3 cp ./target/*.jar s3://datastore-artefact-store-jenkins-apps-appppp/
-                    echo "-------- Pushing Artifacts To S3 Completed --------"
-                """
+                '''
             }
         }
 
-        stage("Docker Image Build") {
+        stage("Docker Build") {
             steps {
-                sh """
+                sh '''
                     echo "-------- Building Docker Image --------"
                     docker build -t datastore:${App_Version} .
-                    echo "-------- Image Successfully Built --------"
-                """
+                '''
             }
         }
 
@@ -75,65 +77,61 @@ pipeline {
                     mkdir -p $TRIVY_TEMP_DIR
 
                     trivy image \
-                      --scanners vuln \
-                      --timeout 5m \
-                      --skip-java-db-update \
-                      datastore:${App_Version} || true
-
-                    echo "-------- Scan Completed --------"
+                        --scanners vuln \
+                        --timeout 5m \
+                        --skip-java-db-update \
+                        datastore:${App_Version} || true
                 '''
             }
         }
 
-        stage("Docker Image Tag") {
+        stage("Docker Tag") {
             steps {
-                sh """
-                    echo "-------- Tagging Docker Image --------"
-                    docker tag datastore:${App_Version} kashishsoni004/datastore:${App_Version}
-                    echo "-------- Tagging Docker Image Completed --------"
-                """
+                sh '''
+                    docker tag datastore:${App_Version} \
+                    kashishsoni004/datastore:${App_Version}
+                '''
             }
         }
 
-        stage("Loggingin & Pushing Docker Image") {
+        stage("Docker Login & Push") {
             steps {
-                sh """
-                    echo "-------- Logging To DockerHub --------"
-                    docker login -u $DOCKERHUB_CREDENTIALS_USR --password $DOCKERHUB_CREDENTIALS_PSW
+                sh '''
+                    echo "-------- Logging into DockerHub --------"
+                    docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
 
-                    echo "-------- Pushing Docker Image To DockerHub --------"
+                    echo "-------- Pushing Image --------"
                     docker push kashishsoni004/datastore:${App_Version}
-                """
+                '''
             }
         }
 
         stage("Cleanup") {
             steps {
-                sh """
-                    echo "-------- Cleaning Up Jenkins Machine --------"
+                sh '''
+                    echo "-------- Cleaning Docker --------"
                     docker image prune -a -f
-                """
+                '''
             }
         }
 
-        stage("Deployment Acceptance") {
+        stage("Deployment Approval") {
             steps {
-                input 'Trigger Down Stream Job??'
+                input "Trigger Downstream Deployment?"
             }
         }
 
-        stage("Triggering Deployment") {
+        stage("Trigger Kubernetes Deployment") {
             steps {
                 build job: "KubernetesDeployment",
                     parameters: [
                         string(name: "App_Name", value: "datastore-deploy"),
-                        string(name: "App_Version", value: "${params.App_Version}")
+                        string(name: "App_Version", value: params.App_Version)
                     ]
             }
         }
     }
 
-    // ✅ FIXED: post block OUTSIDE stages
     post {
         success {
             slackSend(
@@ -148,22 +146,6 @@ pipeline {
                 channel: '#practice',
                 color: 'danger',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}\n${env.BUILD_URL}"
-            )
-        }
-
-        unstable {
-            slackSend(
-                channel: '#practice',
-                color: 'warning',
-                message: "⚠️ UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
-
-        aborted {
-            slackSend(
-                channel: '#practice',
-                color: 'warning',
-                message: "🚫 ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
         }
 
