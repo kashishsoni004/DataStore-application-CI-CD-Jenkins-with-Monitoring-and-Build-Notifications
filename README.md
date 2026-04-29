@@ -449,8 +449,10 @@ Manage Jenkins → Credentials → Global
 Add:
 
 Kind: Secret Text
-    Secret: Slack Bot Token
-     ID: slackSend
+
+ Secret: Slack Bot Token
+    
+ID: slackSend
      
 Step 5: Configure Slack in Jenkins
 
