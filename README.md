@@ -433,51 +433,52 @@ Fix:
 
     stages {
 
-    stage('Checkout') {
-        steps {
-            checkout scmGit(
-                branches: [[name: '*/main']],
-                extensions: [],
-                userRemoteConfigs: [[
-                    url: 'https://github.com/kashishsoni004/Kubernetes-ArgoCD.git'
-                ]]
-            )
+        stage('Checkout') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/kashishsoni004/Kubernetes-ArgoCD.git'
+                    ]]
+                )
+            }
         }
-    }
 
-    stage('Update Files') {
-        steps {
-            sh """
-                echo "-------- Updating File Content --------"
+        stage('Update Files') {
+            steps {
+                sh """
+                    echo "-------- Updating File Content --------"
 
-                cd ${params.App_Name}
+                    cd ${params.App_Name}
 
-                sed -i 's|image:.*|image: kashishsoni004/datastore:${params.App_Version}|g' ${params.App_Name}.yaml
+                    sed -i 's|image:.*|image: kashishsoni004/datastore:${params.App_Version}|g' ${params.App_Name}.yaml
 
-                echo "-------- File Content Updated Successfully --------"
-            """
+                    echo "-------- File Content Updated Successfully --------"
+                """
+            }
         }
-    }
 
-    stage('GitHub Push') {
-        steps {
-            sh """
-                echo "-------- Pushing Changes To GitHub --------"
+        stage('GitHub Push') {
+            steps {
+                sh """
+                    echo "-------- Pushing Changes To GitHub --------"
 
-                git config user.name "jenkins"
-                git config user.email "jenkins@local"
+                    git config user.name "jenkins"
+                    git config user.email "jenkins@local"
 
-                git add .
-                git commit -m "docker image updated" || echo "No changes to commit"
+                    git add .
+                    git commit -m "docker image updated" || echo "No changes to commit"
 
-                git push https://${GITHUB_TOKEN}@github.com/kashishsoni004/Kubernetes-ArgoCD.git HEAD:main
+                    git push https://${GITHUB_TOKEN}@github.com/kashishsoni004/Kubernetes-ArgoCD.git HEAD:main
 
-                echo "-------- Pushed Changes Successfully --------"
-            """
+                    echo "-------- Pushed Changes Successfully --------"
+                """
+            }
         }
+
     }
-      }
-    }
+     }
 
 ---
 
