@@ -8,7 +8,7 @@ This project demonstrates a complete CI/CD pipeline integrated with GitOps using
 
 The pipeline automates:
 - Code checkout
-- Build and test
+- Build → Test → SonarQube Analysis → Quality Gate
 - Artifact storage (S3)
 - Docker image creation and push
 - Security scanning
@@ -35,7 +35,9 @@ Source reference: :contentReference[oaicite:0]{index=0}
 - Jenkins
 - Java 21
 - Maven
+- SonarQube 
 - Docker
+- Trivy
 - AWS CLI
 - GitHub repository
 - DockerHub account
@@ -84,7 +86,9 @@ Source reference: :contentReference[oaicite:0]{index=0}
   - Stage View  
   - Blue Ocean  
   - Parameterized Trigger  
-  - Slack Notification 
+  - Slack Notification
+  - SonarQube Scanner
+  - Quality Gates
 
 ---
 
@@ -99,7 +103,7 @@ Source reference: :contentReference[oaicite:0]{index=0}
                 steps {
                     checkout scmGit(
                         branches: [[name: '*/main']],
-                        userRemoteConfigs: [[url: 'https://github.com/bhawnavishwakarma007/DataStore.git']]
+                        userRemoteConfigs: [[url: 'https://github.com/kashishsoni004/DataStore-application-CI-CD-Jenkins-with-Monitoring-and-Build-Notifications.git']]
                     )
                 }
             } 
@@ -142,6 +146,70 @@ Source reference: :contentReference[oaicite:0]{index=0}
 
 ---
 
+### ⚙️ SonarQube Setup
+
+#### Run SonarQube using Docker
+
+    docker run -d --name sonar -p 9000:9000 sonarqube
+
+Access:
+
+    http://< your-server-ip >:9000
+
+---
+
+### 🔑 Generate Token
+
+- Login: admin / admin  
+- Go to My Account → Security  
+- Generate token  
+
+---
+
+### 🔐 Add Credentials in Jenkins
+
+- Type: Secret Text  
+- ID: sonar-token  
+
+---
+
+### ⚙️ Configure SonarQube in Jenkins
+
+- Manage Jenkins → Configure System  
+
+Add SonarQube Server:
+
+- Name: sonar  
+- URL: http://< your-server-ip >:9000  
+- Credentials: sonar-token  
+
+---
+
+### 🚀 Pipeline Stage (SonarQube Analysis)
+
+    stage("SonarQube Analysis") {
+    steps {
+        withSonarQubeEnv('sonar') {
+            sh """
+                mvn clean verify sonar:sonar \
+                -Dsonar.projectKey=datastore
+            """
+        }
+      }   
+    }
+
+---
+
+### ✅ Quality Gate (optional)
+
+    stage("Quality Gate") {
+        steps {
+            timeout(time: 2, unit: 'MINUTES') {
+                waitForQualityGate abortPipeline: true  #false
+            }
+        }
+    }
+
 ## AWS Setup
 
 ### Install AWS CLI
@@ -159,7 +227,7 @@ Source reference: :contentReference[oaicite:0]{index=0}
 
 - Create bucket:
 
-    datastore-artefact-store-jenkins-apps-apppp
+    datastore-artefact-store-jenkins-apps-appppp
 
 ---
 
@@ -178,7 +246,7 @@ Source reference: :contentReference[oaicite:0]{index=0}
             steps {
                 sh """
                     echo "-------- Pushing Artifacts To S3 --------"
-                    aws s3 cp ./target/*.jar s3://datastore-artefact-store-jenkins-apps-apppp/
+                    aws s3 cp ./target/*.jar s3://datastore-artefact-store-jenkins-apps-appppp/
                     echo "-------- Pushing Artifacts To S3 Completed --------"
                 """
             }
@@ -236,11 +304,32 @@ Fix:
 
 ---
 
+### ⚙️ Trivy Scan Stage
+
+       stage("Docker Scan (Trivy)") {
+         steps {
+           sh '''
+            echo "-------- Scanning Image --------"
+
+            export TRIVY_TEMP_DIR=/var/lib/jenkins/trivy-temp
+            mkdir -p $TRIVY_TEMP_DIR
+
+            trivy image \
+              --scanners vuln \
+              --timeout 5m \
+              --skip-java-db-update \
+              datastore:${App_Version} || true
+
+            echo "-------- Scan Completed --------"
+        '''
+           }
+       }
+
 ## DockerHub Integration
 
 ### Repository
 
-    bhawnavishwakarma/datastore
+    kashishsoni004/datastore
 
 ---
 
@@ -257,7 +346,7 @@ Fix:
             steps {
                 sh """
                     echo "-------- Tagging Docker Image --------"
-                    docker tag datastore:"${App_Version}" bhawnavishwakarma/datastore:"${App_Version}"
+                    docker tag datastore:"${App_Version}" kashishsoni004/datastore:"${App_Version}"
                     echo "-------- Tagging Docker Image Completed --------"
                 """
             }
@@ -275,7 +364,7 @@ Fix:
                     echo "-------- DockerHub Login Successful --------"
 
                     echo "-------- Pushing Docker Image To DockerHub --------"
-                    docker push bhawnavishwakarma/datastore:"${App_Version}"
+                    docker push kashishsoni004/datastore:"${App_Version}"
                     echo "-------- Docker Image Pushed Successfully --------"
                 """
             }
@@ -315,7 +404,7 @@ Fix:
 
 ---
 
-### GitHub Token
+### GitHub Token add credentials inside jenkins
 
 - Type: Secret Text
 - ID: github-token
@@ -324,72 +413,71 @@ Fix:
 
 ### Pipeline Code
 
-           pipeline {
+    pipeline {
     agent any
 
     environment {
-        GITHUB_TOKEN = credentials('github-token')
+        GITHUB_TOKEN = credentials("github-token")
     }
 
     parameters {
         string(
-            name: 'App_Name',
-            description: 'application name that need to be deployed'
+            name: "App_Name",
+            description: "application name that need to be deployed"
         )
         string(
-            name: 'App_Version',
-            description: 'version of the application that need to be deployed'
+            name: "App_Version",
+            description: "version of the application that need to be deployed"
         )
     }
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                checkout scmGit(
-                    branches: [[name: '*/main']],
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/kashishsoni004/Kubernetes-ArgoCD.git'
-                    ]]
-                )
-            }
-        }
-
-        stage('Update Files') {
-            steps {
-                sh """
-                    echo "-------- Updating File Content --------"
-
-                    cd ${params.App_Name}
-
-                    sed -i 's|image:.*|image: kashishsoni004/datastore:${params.App_Version}|g' ${params.App_Name}.yaml
-
-                    echo "-------- File Content Updated Successfully --------"
-                """
-            }
-        }
-
-        stage('GitHub Push') {
-            steps {
-                sh """
-                    echo "-------- Pushing Changes To GitHub --------"
-
-                    git config user.name "jenkins"
-                    git config user.email "jenkins@local"
-
-                    git add .
-                    git commit -m "docker image updated" || echo "No changes to commit"
-
-                    git push https://${GITHUB_TOKEN}@github.com/kashishsoni004/Kubernetes-ArgoCD.git HEAD:main
-
-                    echo "-------- Pushed Changes Successfully --------"
-                """
-            }
+    stage('Checkout') {
+        steps {
+            checkout scmGit(
+                branches: [[name: '*/main']],
+                extensions: [],
+                userRemoteConfigs: [[
+                    url: 'https://github.com/kashishsoni004/Kubernetes-ArgoCD.git'
+                ]]
+            )
         }
     }
-}
-   
+
+    stage('Update Files') {
+        steps {
+            sh """
+                echo "-------- Updating File Content --------"
+
+                cd ${params.App_Name}
+
+                sed -i 's|image:.*|image: kashishsoni004/datastore:${params.App_Version}|g' ${params.App_Name}.yaml
+
+                echo "-------- File Content Updated Successfully --------"
+            """
+        }
+    }
+
+    stage('GitHub Push') {
+        steps {
+            sh """
+                echo "-------- Pushing Changes To GitHub --------"
+
+                git config user.name "jenkins"
+                git config user.email "jenkins@local"
+
+                git add .
+                git commit -m "docker image updated" || echo "No changes to commit"
+
+                git push https://${GITHUB_TOKEN}@github.com/kashishsoni004/Kubernetes-ArgoCD.git HEAD:main
+
+                echo "-------- Pushed Changes Successfully --------"
+            """
+        }
+    }
+      }
+    }
 
 ---
 
@@ -409,175 +497,346 @@ Fix:
 
 ## 🔔 Slack Notifications Integration
 
- Step 1: Create Slack App
-       Go to: https://api.slack.com/apps
-Click Create New App
-Choose:
-      From Scratch
-App Name:
-        jenkins
-Select your workspace:
-      awspracticeco
-Step 2: Add Bot Permissions
+### Step 1: Install Plugin
 
-Go to:
+- Manage Jenkins → Manage Plugins  
+- Install: Slack Notification  
 
-OAuth & Permissions → Bot Token Scopes
+---
 
-Add:
+### Step 2: Create Slack App
 
-    chat:write
-    chat:write.public
-    channels:read
+- Go to Slack API  
+- Create app from scratch  
+- Select workspace  
 
-Step 3: Install App
+---
 
-Click:
+### Step 3: Configure OAuth & Permissions
 
-Install to Workspace
+Add Bot Token Scopes:
 
-👉 Copy Bot Token:
+- chat:write  
+- chat:write.public  
+- incoming-webhook  
 
-    xoxb-xxxxxxxx
-    
-Step 4: Add Credential in Jenkins
+---
 
-Go to:
+### Step 4: Install App
 
-Manage Jenkins → Credentials → Global
+- Click **Install to Workspace**  
+- Copy Bot Token  
 
-Add:
+---
 
-Kind: Secret Text
+### Step 5: Configure Jenkins
 
- Secret: Slack Bot Token
-    
-ID: slackSend
-     
-Step 5: Configure Slack in Jenkins
+- Manage Jenkins → Configure System → Slack  
 
-Go to:
+Fill:
 
-Manage Jenkins → System → Slack
+- Workspace (aws practise) 
+- Credentials (Bot Token)
+- - Type: Secret Text
+- - - Secret: bot token paste
+- - - ID: slackSend
+- Default Channel  (copy your channel link and paste )
+- Enable Custom Slack Bot  
 
-     Field	Value
-    Workspace	awspracticeco
-    Credential	slackSend
-    Open channel → copy Link:
+---
 
-Example:
+### Step 6: Invite Bot
 
-     https://app.slack.com/client/TXXXX/C0AMPGQ5N9Y
+    /invite @your-bot-name (jenkins)
 
-👉 Use:
-
-    C0AMPGQ5N9Y
-
-   Enable Custom Slack Bot 
-
-👉 Save
-
-Step 6: Create Slack Channel
-Open your Slack workspace:
-    👉 awspracticeco.slack.com
-In left sidebar → click ➕ (Add channels)
-Click:
-Create a new channel
-Enter details:
-Channel name: practise
-Type: Public
-
-👉 Final channel:
-
-     #practise
-Click Create
-
-🔄 Step 7: Invite Bot to Channel
-
-After creating channel:
-
-     /invite @jenkins
-     
+---
 
 ### Step 7: Pipeline Integration
 
     post {
-        success {
-            slackSend(
-                channel: '#practice',
-                color: 'good',
-                message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} completed successfully"
-            )
-        }
-
-        failure {
-            slackSend(
-                channel: '#practice',
-                color: 'danger',
-                message: "FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER} failed\n${env.BUILD_URL}"
-            )
-        }
-
-        unstable {
-            slackSend(
-                channel: '#practice',
-                color: 'warning',
-                message: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
-
-        aborted {
-            slackSend(
-                channel: '#practice',
-                color: 'warning',
-                message: "ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
-
-        always {
-            slackSend(
-                channel: '#practice',
-                color: 'good',
-                message: "Build finished: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
+    success {
+        slackSend(
+            channel: '#practice',
+            color: 'good',
+            message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} completed successfully"
+        )
     }
 
+    failure {
+        slackSend(
+            channel: '#practice',
+            color: 'danger',
+            message: "FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER} failed\n${env.BUILD_URL}"
+        )
+    }
+
+    unstable {
+        slackSend(
+            channel: '#practice',
+            color: 'warning',
+            message: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        )
+    }
+
+    aborted {
+        slackSend(
+            channel: '#practice',
+            color: 'warning',
+            message: "ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        )
+    }
+
+    always {
+        slackSend(
+            channel: '#practice',
+            color: 'good',
+            message: "Build finished: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        )
+      }
+    }
 ---
 
-## 🔄 Final Workflow
+## 🚀 ArgoCD Setup (GitOps Deployment)
+✅ Step 1: Make sure Kubernetes is ready
 
-    Code Push → GitHub
-            ↓
-    Jenkins CI Pipeline Triggered
-            ↓
-    Build & Test
-            ↓
-    Artifact Uploaded to S3
-            ↓
-    Docker Image Built & Pushed
-            ↓
-    Manual Approval
-            ↓
-    Downstream Pipeline Triggered
-            ↓
-    YAML Updated (GitOps Repo)
-            ↓
-    Kubernetes Deployment via ArgoCD
+ You must have:
+
+    A running Kubernetes cluster (EKS / Minikube / K8s on EC2)
+    kubectl configured
+
+#### Pre-requisites: 
+  - an EC2 Instance
+---
+
+#### AWS EKS Setup 
+### 1. Setup kubectl   
+   a. Download kubectl version 1.20  
+   b. Grant execution permissions to kubectl executable   
+   c. Move kubectl onto /usr/local/bin   
+   d. Test that your kubectl installation was successful    
+   ```sh 
+   curl -o kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/1.19.6/2021-01-05/bin/linux/amd64/kubectl
+   chmod +x ./kubectl
+   mv ./kubectl /usr/local/bin 
+   kubectl version --short --client
+   ```
+--- 
+### 2. Setup eksctl   
+   a. Download and extract the latest release   
+   b. Move the extracted binary to /usr/local/bin   
+   c. Test that your eksclt installation was successful   
+   ```sh
+   curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+   sudo mv /tmp/eksctl /usr/local/bin
+   eksctl version
+   ```
+---
+  
+### 3. Create an IAM Role and attache it to EC2 instance    
+   `Note: create IAM user with programmatic access if your bootstrap system is outside of AWS`   
+    You need to attach proper IAM permissions to your EC2 instance role.
+
+  🔧 Step 1: Go to AWS Console
+     - Open Amazon Web Services
+     Go to IAM → Roles
+     - Find your role: ec2-admin
+     
+  🔧 Step 2: Attach required policies
+
+   Add these policies:
+
+  ✅ Required for EKS
+   - AmazonEKSClusterPolicy
+   - AmazonEKSWorkerNodePolicy
+   - AmazonEKS_CNI_Policy
+     
+  ✅ Required for EC2 + networking
+   - AmazonEC2FullAccess (for learning/demo)
+   
+---
+### 4. Create your cluster and nodes 
+   ```sh
+   eksctl create cluster --name cluster-name  \
+   --region region-name \
+   --node-type instance-type \
+   --nodes-min 2 \
+   --nodes-max 2 \ 
+   --zones <AZ-1>,<AZ-2>
+   
+   example:
+   eksctl create cluster --name mahima \
+      --region us-east-1 \
+   --node-type t2.small \
+```
+---
+
+### 5. To delete the EKS clsuter (if uhh want to delete)
+   ```sh
+      eksctl delete cluster mahima --region ap-south-1
+   ```
+---   
+
+### 6. Validate your cluster using by creating by checking nodes and by creating a pod 
+   ```sh 
+   kubectl get nodes
+   ```
+---
+
+✅ Step 2: Create the namespace for argoCD
+   ```sh 
+     kubectl create namespace argocd
+   ```
+---
+
+✅ Step 3: Install ArgoCD using the below command
+   ```sh 
+   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+   ```
+---
+
+✅ Step 3: check what resources it has created
+ ```sh 
+    kubectl get all -n argocd
+ ```
+
+ ```sh 
+    kubectl get all -n argocd
+ ```
+
+ ```sh 
+    kubectl edit svc argocd-server -n argocd  #enable NodePort 
+ ```
+
+ ```sh
+    kubectl get nodes -n argocd
+ ```
+
+ ```sh
+    kubectl get svc -n argocd
+ ```
+---
+
+✅ Step 4: Access ArgoCD UI
+ - take any instance public ip and hit browser
+
+Open in browser:
+```sh 
+   https://<YOUR-EC2-IP>:<NODEPORT ip>
+```
+---
+
+✅ Step 5: Get login password
+
+```sh 
+   kubectl get secret argocd-initial-admin-secret -n argocd -o yaml
+```
+- the secret base64 encoded so, you have to decod the secret by runnig the below command
+```sh
+   echo "secret value" | base64 --decode
+```
+   
+Login:
+   - Username: admin
+   - Password: (command output)
+---
+
+✅ Step 6: Connect your GitOps repository
+    - This should be your repo where Kubernetes YAML files exist
+    (the same repo Jenkins updates using sed)
+---
+
+✅ Step 7: Create Application in ArgoCD
+
+   In ArgoCD UI:
+
+   General:
+   
+   - Application Name: datastore-app
+   - Project: default
+   - sync policy: Automatic
+     
+   Source:
+   
+   - Repo URL: your GitOps repo URL
+   - Branch: main
+   - Path: folder where YAML exists (e.g. datastore-deploy)
+     
+   Destination:
+   
+   - Cluster: https://kubernetes.default.svc
+   - Namespace: default (or your custom namespace)
+   ```sh
+       kubectl create ns dev
+   ```
+  Create 
+---
+
+✅ Step 8: Enable Auto Sync
+
+   Enable:
+   
+  - ✅ Auto Sync
+  - ✅ Self Heal
+---
+
+✅ Step 9: Deploy Application
+
+   Click:
+   
+  - Create → Sync
+    
+Verify Deployment
+ ```sh
+       kubectl get pods
+ ```
+---
+
+ ## 🔄 Final Workflow
+
+    Code Push → GitHub  
+        ↓  
+    Jenkins CI Pipeline Triggered  
+        ↓  
+    Build & Test  
+        ↓  
+    SonarQube Analysis (Code Quality Check)  
+        ↓  
+    Quality Gate Validation  
+        ↓  
+    Artifact Uploaded to S3  
+        ↓  
+    Docker Image Built  
+        ↓  
+    Trivy Scan (Security Check)  
+        ↓  
+    Docker Image Pushed to DockerHub  
+        ↓  
+    Manual Approval  
+        ↓  
+    Downstream Pipeline Triggered  
+        ↓  
+    YAML Updated (GitOps Repo)  
+        ↓  
+    Kubernetes Deployment via ArgoCD  
 
 ---
 
-## ✅ Final Status
+
+## ✅ Final Status 
 
 - CI/CD pipeline successfully implemented  
 - DockerHub integration completed  
 - IAM role configured securely  
 - Docker build issues resolved  
-- Trivy installed for vulnerability scanning  
+- SonarQube integrated for code quality analysis  
+- Quality gate enforced before deployment  
+- Trivy integrated for vulnerability scanning  
 - Downstream pipeline working  
 - GitHub token authentication configured  
 - GitOps deployment enabled  
 - Slack notifications integrated  
+- Fully automated DevSecOps pipeline implemented
+- End-to-end automated CI/CD pipeline with security and quality checks
 
 ---
 ---
